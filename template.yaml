@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: bedrock-web-search-proxy — drop-in Perplexity Sonar API via Nova Premier grounding
+
+Parameters:
+  LambdaAdapterLayerVersion:
+    Type: Number
+    Default: 25
+  Architecture:
+    Type: String
+    Default: arm64
+    AllowedValues:
+      - arm64
+      - x86_64
+    Description: "Lambda architecture. arm64 (Graviton2) is cheaper; x86_64 for compatibility."
+  ApiKey:
+    Type: String
+    Default: ""
+    Description: "Optional bearer token (Authorization: Bearer <key>)"
+
+Conditions:
+  IsArm64: !Equals [!Ref Architecture, arm64]
+
+Globals:
+  Function:
+    MemorySize: 512
+    Timeout: 300
+
+Resources:
+  DepsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      ContentUri: layer/
+      CompatibleRuntimes:
+        - python3.13
+      CompatibleArchitectures:
+        - arm64
+        - x86_64
+    Metadata:
+      BuildMethod: makefile
+
+  BedrockWebSearchProxy:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: run.sh
+      Runtime: python3.13
+      Architectures:
+        - !Ref Architecture
+      Environment:
+        Variables:
+          AWS_LAMBDA_EXEC_WRAPPER: /opt/bootstrap
+          AWS_LWA_INVOKE_MODE: RESPONSE_STREAM
+          AWS_LWA_PORT: 8000
+          API_KEY: !Ref ApiKey
+      Layers:
+        - !Ref DepsLayer
+        - !If
+          - IsArm64
+          - !Sub "arn:aws:lambda:${AWS::Region}:753240598075:layer:LambdaAdapterLayerArm64:${LambdaAdapterLayerVersion}"
+          - !Sub "arn:aws:lambda:${AWS::Region}:753240598075:layer:LambdaAdapterLayerX86:${LambdaAdapterLayerVersion}"
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: RESPONSE_STREAM
+      Policies:
+        - Statement:
+          - Effect: Allow
+            Action:
+              - bedrock:InvokeModel
+              - bedrock:InvokeModelWithResponseStream
+              - bedrock:InvokeTool
+            Resource:
+              - arn:aws:bedrock:*::foundation-model/*
+              - arn:aws:bedrock:*:*:inference-profile/*
+              - arn:aws:bedrock::*:system-tool/*
+    Metadata:
+      BuildMethod: makefile
+
+Outputs:
+  FunctionUrl:
+    Description: "Function URL for bedrock-web-search-proxy"
+    Value: !GetAtt BedrockWebSearchProxyUrl.FunctionUrl
+  SampleCurlCommand:
+    Description: "Test with Bitcoin price query"
+    Value: !Sub "curl -s ${BedrockWebSearchProxyUrl.FunctionUrl}v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\":\"nova-premier-web-grounding\",\"messages\":[{\"role\":\"user\",\"content\":\"Bitcoin price now?\"}]}'"

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bedrock-web-search-proxy"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]",
+    "boto3",
+]
+
+[project.scripts]
+bedrock-web-search-proxy = "main:run"
+
+[tool.hatch.build.targets.wheel]
+include = ["main.py"]

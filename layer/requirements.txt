@@ -1,0 +1,4 @@
+fastapi
+uvicorn
+boto3
+pydantic==1.10.26
